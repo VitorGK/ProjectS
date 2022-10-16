@@ -76,6 +76,7 @@ private:
     Synthesiser synth;
     int synthVoices = 32;
     
+    float maxOutputLevel = 0.25;
 //    DelayEffect<float> delayEffect = *this;
     
 //====================================================================================================

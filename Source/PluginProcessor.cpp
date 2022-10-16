@@ -34,7 +34,7 @@ ProjectSAudioProcessor::~ProjectSAudioProcessor() {
 
 const String ProjectSAudioProcessor::getName() const { return JucePlugin_Name; }
 
-// MARK: --- PREPARE TO PLAY ---
+// MARK: - PREPARE TO PLAY
 void ProjectSAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     String message;
     message << "Preparing to play audio...\n";
@@ -61,20 +61,24 @@ void ProjectSAudioProcessor::releaseResources() {
     Logger::getCurrentLogger()->writeToLog("Audio resources released...");
 }
 
-// MARK: --- PROCESS BLOCK ---
+// MARK: - PROCESS BLOCK
 void ProjectSAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {
     int bufferSize = buffer.getNumSamples();
-    auto totalNumInputChannels = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
+    int totalNumInputChannels = getTotalNumInputChannels();
+    int totalNumOutputChannels = getTotalNumOutputChannels();
     
+    // CLEAR BUFFER
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i) {
         buffer.clear(i, 0, buffer.getNumSamples());
     }
     
+    // KEYBOARD
     keyboardState.processNextMidiBuffer(midiMessages, 0, bufferSize, true);
     
+    // MARK: - SAMPLER
     sampler.renderNextBlock(buffer, midiMessages, 0, bufferSize);
     
+    // MARK: - SYNTH
     for (int i = 0; i < synth.getNumVoices(); ++i) {
         if (auto voice = dynamic_cast<SynthVoice*>(synth.getVoice(i))) {
             auto& oscAttack = *apvts.getRawParameterValue("OscAttack");
@@ -87,26 +91,29 @@ void ProjectSAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer
             auto& oscWaveType = *apvts.getRawParameterValue("OscWaveType");
             
             voice->setADSR(oscAttack.load(), oscDecay.load(), oscSustain.load(), oscRelease.load());
-            voice->setGain(oscGain.load());
+            voice->setGain(oscGain.load() * maxOutputLevel);
             voice->getOscillator().setWaveType(oscWaveType.load());
         }
     }
     synth.renderNextBlock(buffer, midiMessages, 0, bufferSize);
     
+    // MARK: - DISTORTION
     auto& distortionDrive = *apvts.getRawParameterValue("DistortionDrive");
-    for (int channel = 0; channel < totalNumInputChannels; ++channel) {
+    for (int channel = totalNumInputChannels; channel < totalNumOutputChannels; ++channel) {
         auto* channelData = buffer.getWritePointer(channel);
         
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample) {
             *channelData *= distortionDrive.load();
             
-            if (*channelData > 1.0f) {
-                *channelData = 1.0f;
-            } else if (*channelData < -1.0f) {
-                *channelData = -1.0f;
-            }
+            // HARD CLIP
+//            if (*channelData > 1.0f) {
+//                *channelData = 1.0f;
+//            } else if (*channelData < -1.0f) {
+//                *channelData = -1.0f;
+//            }
             
-            std::cout << *channelData << "\n";
+            // SOFT CLIP
+            *channelData = (2.f / MathConstants<float>::pi) * atan(*channelData);
             
             ++channelData;
         }
@@ -114,6 +121,7 @@ void ProjectSAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer
 //    distortionDrive.setDrive(distortionDrive.load());
 //    distortionDrive.process(buffer, bufferSize);
     
+    // MARK: - DELAY
     auto& delayFeedback = *apvts.getRawParameterValue("DelayFeedback");
 //    delayEffect.setFeedback(delayFeedback.load());
 //    delayEffect.process(buffer, bufferSize);
@@ -271,7 +279,7 @@ AudioProcessorValueTreeState::ParameterLayout ProjectSAudioProcessor::createPara
     
     params.push_back(std::make_unique<AudioParameterChoice>("OscWaveType", "Osc Wave Type", StringArray("Sine", "Saw", "Square"), 0));
     
-    params.push_back(std::make_unique<AudioParameterFloat>("DistortionDrive", "Distortion Drive", NormalisableRange<float>(1.0f, 10.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<AudioParameterFloat>("DistortionDrive", "Distortion Drive", NormalisableRange<float>(1.0f, 100.0f, 0.01f), 1.0f));
     
     params.push_back(std::make_unique<AudioParameterFloat>("DelayFeedback", "Delay Feedback", NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     
