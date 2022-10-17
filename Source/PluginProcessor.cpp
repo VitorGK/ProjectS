@@ -52,6 +52,9 @@ void ProjectSAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     }
     
 //    delayEffect.prepareToPlay(sampleRate, samplesPerBlock);
+    auto delayBufferSize = 2 * (sampleRate + samplesPerBlock);
+    delayBuffer.setSize(getTotalNumOutputChannels(), (int)delayBufferSize);
+    
     Logger::getCurrentLogger()->writeToLog("Audio ready to play...");
 }
 
@@ -123,10 +126,50 @@ void ProjectSAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer
     
     // MARK: - DELAY
     auto& delayFeedback = *apvts.getRawParameterValue("DelayFeedback");
+    
+    int delayBufferSize = delayBuffer.getNumSamples();
+    for (int channel = totalNumInputChannels; channel < totalNumOutputChannels; ++channel) {
+        const float* channelData = buffer.getWritePointer(channel);
+        const float* delayChannelData = delayBuffer.getReadPointer(channel);
+        fillBuffer(channel, bufferSize, delayBufferSize, channelData);
+        readBuffer(buffer, getSampleRate(), channel, bufferSize, delayBufferSize, channelData, delayChannelData, delayFeedback.load());
+        fillBuffer(channel, bufferSize, delayBufferSize, channelData);
+    }
+    writePosition += bufferSize;
+    writePosition %= delayBufferSize;
+    
 //    delayEffect.setFeedback(delayFeedback.load());
 //    delayEffect.process(buffer, bufferSize);
+    
+    // TODO: Make output gain
 }
 
+void ProjectSAudioProcessor::fillBuffer(int channel, int bufferSize, int delayBufferSize, const float* channelData) {
+    if (delayBufferSize > bufferSize + writePosition) {
+        delayBuffer.copyFrom(channel, writePosition, channelData, bufferSize);
+    } else {
+        const int numSamplesToEnd = delayBufferSize - writePosition;
+        delayBuffer.copyFrom(channel, writePosition, channelData, numSamplesToEnd);
+        const int numSamplesAtStart = bufferSize - numSamplesToEnd;
+        delayBuffer.copyFrom(channel, 0, channelData, numSamplesAtStart);
+    }
+}
+
+void ProjectSAudioProcessor::readBuffer(AudioBuffer<float>& buffer, int sampleRate, int channel, int bufferSize, int delayBufferSize, const float* channelData, const float* delayChannelData, float delayFeedback) {
+    playHead = this->getPlayHead();
+    playHead->getCurrentPosition(currentPositionInfo);
+    float bpm = currentPositionInfo.bpm;
+    float delayTime = (60.0f / bpm) * 1000;
+    int readPosition = static_cast<int>(delayBufferSize + writePosition - (sampleRate * delayTime / 1000)) % delayBufferSize;
+    if (delayBufferSize > bufferSize + readPosition) {
+        buffer.addFromWithRamp(channel, 0, delayChannelData + readPosition, bufferSize, delayFeedback, delayFeedback);
+    } else {
+        const int numSamplesToEnd = delayBufferSize - readPosition;
+        buffer.addFromWithRamp(channel, 0, delayChannelData + readPosition, numSamplesToEnd, delayFeedback, delayFeedback);
+        const int numSamplesAtStart = bufferSize - numSamplesToEnd;
+        buffer.addFromWithRamp(channel, numSamplesToEnd, delayChannelData, numSamplesAtStart, delayFeedback, delayFeedback);
+    }
+}
 
 double ProjectSAudioProcessor::getTailLengthSeconds() const { return 0.0; }
 

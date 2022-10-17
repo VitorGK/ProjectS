@@ -51,6 +51,10 @@ public:
     
     bool isSampleLoaded = false;
     
+    void fillBuffer(int channel, int bufferSize, int delayBufferSize, const float* channelData);
+    void readBuffer(AudioBuffer<float>& buffer, int sampleRate, int channel, int bufferSize, int delayBufferSize, const float* channelData, const float* delayChannelData, float delayFeedback);
+//    void feedbackDelay(AudioBuffer<float>& buffer, int channel, int bufferSize, int delayBufferSize, const float* dryBuffer, float delayFeedback);
+    
 //====================================================================================================
     void loadFile();
     void loadFile(const String& path);
@@ -78,6 +82,12 @@ private:
     
     float maxOutputLevel = 0.25;
 //    DelayEffect<float> delayEffect = *this;
+    
+    AudioBuffer<float> delayBuffer;
+    int writePosition = 0;
+    
+    AudioPlayHead* playHead;
+    AudioPlayHead::CurrentPositionInfo currentPositionInfo;
     
 //====================================================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ProjectSAudioProcessor)
